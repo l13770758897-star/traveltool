@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>极简旅行攻略编辑器</title>
+    <link rel="icon" href="data:,">
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft YaHei", sans-serif; }
+        #container { width: 100%; height: calc(100% - 60px); }
+        #controls { height: 60px; background: #2c3e50; display: flex; align-items: center; padding: 0 20px; color: white; gap: 10px; }
+        .search-box { position: absolute; top: 80px; left: 20px; z-index: 10; width: 340px; display: flex; gap: 6px; }
+        .search-box input { flex: 1; }
+        input[type="text"] { padding: 8px; border-radius: 4px; border: 1px solid #ddd; width: 200px; }
+        button { padding: 8px 15px; cursor: pointer; background: #3498db; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #2980b9; }
+        .info-form { width: 250px; padding: 10px; }
+        .info-form input, .info-form textarea { width: 100%; margin-bottom: 10px; display: block; box-sizing: border-box; }
+        #panel { position: absolute; background-color: white; max-height: 43%; overflow-y: auto; top: 80px; right: 20px; width: 280px; z-index: 10; border: 1px solid #ccc; border-radius: 8px; display: none; }
+        #pointPanel { position: absolute; background-color: white; max-height: 43%; overflow-y: auto; bottom: 10px; right: 20px; width: 280px; z-index: 10; border: 1px solid #ccc; border-radius: 8px; display: none; }
+        .point-item { padding: 8px 10px; border-bottom: 1px solid #eee; cursor: grab; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+        .point-item:hover { background: #f0f7ff; }
+        .point-item.dragging { opacity: 0.4; }
+        .point-item.drag-over { border-top: 2px solid #3498db; }
+        .point-item .p-idx { min-width: 20px; font-weight: bold; color: #e74c3c; }
+        .point-item .p-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .point-item .p-del { cursor: pointer; color: #e74c3c; font-size: 14px; padding: 0 4px; }
+        #previewOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; flex-direction: column; }
+        #previewOverlay canvas { max-width: 92vw; max-height: 80vh; border-radius: 6px; box-shadow: 0 4px 30px rgba(0,0,0,0.4); background: #fff; }
+        #previewOverlay .preview-bar { display: flex; gap: 8px; margin-bottom: 10px; }
+        #previewOverlay .preview-bar button.active { background: #27ae60; }
+        #searchResults { position: absolute; top: 118px; left: 20px; z-index: 10; width: 340px; max-height: 400px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 6px; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        #searchResults .item { padding: 10px 12px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 13px; }
+        #searchResults .item:hover { background: #f0f7ff; }
+        #searchResults .item .name { font-weight: bold; color: #2c3e50; }
+        #searchResults .item .addr { color: #888; font-size: 12px; margin-top: 2px; }
+        #searchResults .close-btn { float: right; cursor: pointer; padding: 4px 8px; color: #999; font-size: 16px; }
+    </style>
+    <script type="text/javascript">
+        window._AMapSecurityConfig = { securityJsCode: '536d7ded319ca82f9234319ce311720a' };
+    </script>
+    <script src="https://webapi.amap.com/maps?v=2.0&key=734c13428eeb8ef3a8096b199b49f7e0&plugin=AMap.AutoComplete,AMap.PlaceSearch,AMap.Driving,AMap.Weather,AMap.Geocoder"></script>
+</head>
+<body>
+    <div id="controls">
+        <span>攻略列表:</span>
+        <select id="itineraryList" style="padding: 5px;" onchange="loadItinerary(this.value)"></select>
+        <button onclick="createNew()">新建攻略</button>
+        <button onclick="saveAll()">保存当前</button>
+        <button onclick="exportToFile()">导出</button>
+        <button onclick="importFromFile()">导入</button>
+        <button onclick="togglePointPanel()">点位列表</button>
+        <button onclick="togglePreview()">预览</button>
+        <button onclick="togglePanel()">查看概览</button>
+        <span style="flex:1"></span>
+        <span id="fileStatus" style="font-size:12px;cursor:pointer;padding:4px 8px;border-radius:3px;" onclick="linkDataFile()" title="点击关联数据文件，实现自动持久化">⚠️ 未关联文件</span>
+        <button onclick="createNewDataFile()" id="createFileBtn" style="font-size:11px;padding:4px 8px">新建</button>
+    </div>
+    
+    <div class="search-box">
+        <input id="searchInput" placeholder="搜索目的地或点位...">
+        <button onclick="doSearch()">搜索</button>
+    </div>
+    <div id="searchResults">
+        <div style="padding: 8px 12px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 14px;">
+            搜索结果
+            <span class="close-btn" onclick="closeSearchResults()">×</span>
+        </div>
+        <div id="searchResultList"></div>
+    </div>
+
+    <div id="panel">
+        <div style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold;">行程概览</div>
+        <div id="routeList" style="padding: 10px; font-size: 13px;"></div>
+    </div>
+    <div id="pointPanel">
+        <div style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 14px;">
+            点位列表
+            <span onclick="togglePointPanel()" style="float:right;cursor:pointer;color:#999;font-size:16px">×</span>
+        </div>
+        <div id="pointList"></div>
+    </div>
+    <div id="previewOverlay">
+        <div class="preview-bar">
+            <button onclick="renderPreview('line')" class="active">直线</button>
+            <button onclick="renderPreview('road')" id="previewRoadBtn">路线</button>
+            <button onclick="downloadPreview()" style="background:#27ae60">下载</button>
+            <button onclick="closePreview()" style="background:#666">关闭</button>
+        </div>
+        <canvas id="previewCanvas"></canvas>
+    </div>
+
+    <div id="container"></div>
+    <script src="file-handle.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
