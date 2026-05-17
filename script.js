@@ -400,11 +400,14 @@ function togglePointPanel() {
 }
 
 // 8. 预览功能
+let expandedDialogs = new Set();
+
 function togglePreview() {
     if (markers.length < 2) return alert('至少需要2个点位才能预览');
     const overlay = document.getElementById('previewOverlay');
     overlay.style.display = 'flex';
     previewMode = 'line';
+    expandedDialogs.clear();
     renderPreview(previewMode);
 }
 
@@ -412,7 +415,7 @@ function closePreview() {
     document.getElementById('previewOverlay').style.display = 'none';
 }
 
-function renderPreview(mode) {
+function renderPreview(mode, forceCollapsed) {
     previewMode = mode;
     document.querySelectorAll('.preview-bar button').forEach(b => b.classList.remove('active'));
     document.querySelector(`.preview-bar button[onclick*="${mode}"]`).classList.add('active');
@@ -476,24 +479,15 @@ function renderPreview(mode) {
         ctx.setLineDash([]);
     }
 
-    // Draw markers and collect dialog info
+    // Build dialog data
+    const dialogPadX = 12;
+    const dialogPadY = 8;
+    const lineHeight = 18;
+    const dialogWidth = 160;
+
     const dialogs = markers.map((m, i) => {
         const d = m.getExtData();
         const [x, y] = toCanvas(m.getPosition().lng, m.getPosition().lat);
-
-        ctx.beginPath();
-        ctx.arc(x, y, 16, 0, Math.PI * 2);
-        ctx.fillStyle = '#e74c3c';
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(i + 1, x, y);
 
         const name = d._title || m.getTitle() || '';
         const desc = d.desc || '';
@@ -503,25 +497,33 @@ function renderPreview(mode) {
         const date = d.date || '';
         const typeName = getType(type).label;
 
-        const lines = [];
-        lines.push(name);
-        if (desc) lines.push(desc);
-        if (stay) lines.push(`逗留：${stay}`);
-        if (weather) lines.push(`天气：${weather}`);
-        if (typeName) lines.push(`类型：${typeName}`);
-        if (date) lines.push(`日期：${date}`);
+        // Collapsed lines: name, date, type, weather
+        const collapsedLines = [name];
+        if (date) collapsedLines.push(`日期：${date}`);
+        if (typeName) collapsedLines.push(`类型：${typeName}`);
+        if (weather) collapsedLines.push(`天气：${weather}`);
 
-        const dialogPadX = 12;
-        const dialogPadY = 8;
-        const lineHeight = 18;
-        const dialogWidth = 160;
+        // Expanded lines: all details
+        const expandedLines = [name];
+        if (desc) expandedLines.push(desc);
+        if (stay) expandedLines.push(`逗留：${stay}`);
+        if (weather) expandedLines.push(`天气：${weather}`);
+        if (typeName) expandedLines.push(`类型：${typeName}`);
+        if (date) expandedLines.push(`日期：${date}`);
+
+        const isExpanded = !forceCollapsed && expandedDialogs.has(i);
+        const lines = isExpanded ? expandedLines : collapsedLines;
         const dialogHeight = lines.length * lineHeight + dialogPadY * 2;
 
         let dialogX = x + 24;
         if (dialogX + dialogWidth > W - PAD) dialogX = x - dialogWidth - 24;
         let dialogY = y - dialogHeight / 2;
 
-        return { x: dialogX, y: dialogY, w: dialogWidth, h: dialogHeight, lines, dialogPadX, dialogPadY, lineHeight };
+        return {
+            idx: i, x: dialogX, y: dialogY, w: dialogWidth, h: dialogHeight,
+            lines, markerX: x, markerY: y, dialogPadX, dialogPadY, lineHeight,
+            isExpanded, collapsedLines, expandedLines
+        };
     });
 
     // Resolve dialog overlaps
@@ -555,11 +557,66 @@ function renderPreview(mode) {
         if (d.y + d.h > H - PAD) d.y = H - PAD - d.h;
     });
 
+    // Draw arrows from dialog to marker
+    dialogs.forEach(d => {
+        const arrowStartX = d.x + d.w / 2;
+        const arrowStartY = d.h > 0 ? (d.y + d.h) : d.y;
+        const arrowEndX = d.markerX;
+        const arrowEndY = d.markerY;
+
+        // Calculate intersection with marker circle (radius 16)
+        const dx = arrowEndX - arrowStartX;
+        const dy = arrowEndY - arrowStartY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1) return;
+
+        const markerRadius = 16;
+        const endX = arrowEndX - (dx / dist) * markerRadius;
+        const endY = arrowEndY - (dy / dist) * markerRadius;
+
+        ctx.beginPath();
+        ctx.moveTo(arrowStartX, arrowStartY);
+        ctx.lineTo(endX, endY);
+        ctx.strokeStyle = '#3498db';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Arrowhead
+        const angle = Math.atan2(dy, dx);
+        const headLen = 8;
+        ctx.beginPath();
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX - headLen * Math.cos(angle - Math.PI / 6), endY - headLen * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(endX - headLen * Math.cos(angle + Math.PI / 6), endY - headLen * Math.sin(angle + Math.PI / 6));
+        ctx.closePath();
+        ctx.fillStyle = '#3498db';
+        ctx.fill();
+    });
+
+    // Draw markers
+    dialogs.forEach(d => {
+        ctx.beginPath();
+        ctx.arc(d.markerX, d.markerY, 16, 0, Math.PI * 2);
+        ctx.fillStyle = '#e74c3c';
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(d.idx + 1, d.markerX, d.markerY);
+    });
+
     // Draw dialogs
     dialogs.forEach(d => {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.strokeStyle = '#3498db';
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = d.isExpanded ? '#e74c3c' : '#3498db';
+        ctx.lineWidth = d.isExpanded ? 2 : 1.5;
         ctx.beginPath();
         const radius = 6;
         ctx.moveTo(d.x + radius, d.y);
@@ -574,6 +631,17 @@ function renderPreview(mode) {
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
+
+        // Expand/collapse indicator
+        if (!forceCollapsed) {
+            const indicatorX = d.x + d.w - 18;
+            const indicatorY = d.y + 14;
+            ctx.fillStyle = '#999';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(d.isExpanded ? '▲' : '▼', indicatorX, indicatorY);
+        }
 
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
@@ -591,14 +659,40 @@ function renderPreview(mode) {
             textY += d.lineHeight;
         }
     });
+
+    // Click handler for expand/collapse
+    if (!forceCollapsed) {
+        canvas.onclick = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const clickX = (e.clientX - rect.left) * scaleX;
+            const clickY = (e.clientY - rect.top) * scaleY;
+
+            for (let i = dialogs.length - 1; i >= 0; i--) {
+                const d = dialogs[i];
+                if (clickX >= d.x && clickX <= d.x + d.w && clickY >= d.y && clickY <= d.y + d.h) {
+                    if (expandedDialogs.has(d.idx)) {
+                        expandedDialogs.delete(d.idx);
+                    } else {
+                        expandedDialogs.add(d.idx);
+                    }
+                    renderPreview(previewMode);
+                    return;
+                }
+            }
+        };
+    }
 }
 
 function downloadPreview() {
+    renderPreview(previewMode, true);
     const canvas = document.getElementById('previewCanvas');
     const link = document.createElement('a');
     link.download = '路线预览.png';
     link.href = canvas.toDataURL();
     link.click();
+    renderPreview(previewMode);
 }
 
 // 9. 加载指定攻略

@@ -31,10 +31,11 @@
           "title": "乌鲁木齐高铁站希尔顿欢朋酒店",
           "ext": {
             "_title": "乌鲁木齐高铁站希尔顿欢朋酒店",
-            "desc": "",
+            "desc": "1.领馆巷\n2.国际大巴扎\n3.购买食物路上吃",
             "stay": "",
             "weather": "晴 15℃",
-            "type": "hotel"
+            "type": "hotel",
+            "date": "2026-05-23"
           }
         },
         {
@@ -48,7 +49,8 @@
             "desc": "",
             "stay": "",
             "weather": "晴 19℃",
-            "type": "hotel"
+            "type": "hotel",
+            "date": "2026-05-24"
           }
         },
         {
@@ -63,7 +65,7 @@
             "stay": "",
             "weather": "晴 19℃",
             "type": "hotel",
-            "date": ""
+            "date": "2026-05-25"
           }
         },
         {
